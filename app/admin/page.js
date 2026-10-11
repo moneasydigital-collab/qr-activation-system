@@ -1,3 +1,4 @@
+import QRCode from "qrcode";
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -11,6 +12,7 @@ export default function AdminPage() {
   const [count, setCount] = useState("10");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [qrImages, setQrImages] = useState({});
 
   const loadRows = useCallback(async () => {
     const response = await fetch("/api/qr", {
@@ -138,6 +140,41 @@ export default function AdminPage() {
     setMessage("Kamu sudah logout.");
   }
 
+async function generateQR(row) {
+  try {
+    const baseUrl = (
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      window.location.origin
+    ).replace(/\/+$/, "");
+
+    const qrUrl =
+      `${baseUrl}/q/${encodeURIComponent(row.code)}`;
+
+    const dataUrl = await QRCode.toDataURL(qrUrl, {
+      width: 600,
+      margin: 3,
+      errorCorrectionLevel: "H",
+      color: {
+        dark: "#000000",
+        light: "#FFFFFF",
+      },
+    });
+
+    setQrImages((current) => ({
+      ...current,
+      [row.id]: {
+        dataUrl,
+        url: qrUrl,
+      },
+    }));
+
+    setMessage(`Gambar QR ${row.code} berhasil dibuat.`);
+  } catch (error) {
+    console.error("Gagal membuat QR:", error);
+    setMessage("Gagal membuat QR. Coba lagi.");
+  }
+}
+
   const fieldStyle = {
     width: "100%",
     boxSizing: "border-box",
@@ -262,6 +299,46 @@ export default function AdminPage() {
               }}
             >
               <strong>{row.code}</strong>
+
+<div style={{ marginTop: 12, marginBottom: 12 }}>
+  <button
+    type="button"
+    onClick={() => generateQR(row)}
+  >
+    {qrImages[row.id] ? "Perbarui QR" : "Buat gambar QR"}
+  </button>
+
+  {qrImages[row.id] && (
+    <div style={{ marginTop: 12 }}>
+      <img
+        src={qrImages[row.id].dataUrl}
+        alt={`QR Code ${row.code}`}
+        width={240}
+        height={240}
+        style={{
+          display: "block",
+          background: "#fff",
+          padding: 8,
+          border: "1px solid #ddd",
+          borderRadius: 8,
+        }}
+      />
+
+      <p>
+        <a
+          href={qrImages[row.id].dataUrl}
+          download={`${row.code}.png`}
+        >
+          Download PNG
+        </a>
+      </p>
+
+      <small style={{ wordBreak: "break-all" }}>
+        Alamat QR: {qrImages[row.id].url}
+      </small>
+    </div>
+  )}
+</div>
 
               <p>
                 Status tersimpan:{" "}
