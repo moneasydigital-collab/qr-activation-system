@@ -8,6 +8,8 @@ export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [rows, setRows] = useState([]);
   const [drafts, setDrafts] = useState({});
+  const [prefix, setPrefix] = useState("QR");
+  const [count, setCount] = useState("10");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [qrImages, setQrImages] = useState({});
@@ -90,7 +92,48 @@ export default function AdminPage() {
   }
 
   // Simpan URL dan status QR
-  async function saveQR(id) {
+  async function 
+async function createQR(event) {
+  event.preventDefault();
+  setLoading(true);
+  setMessage("");
+
+  try {
+    const response = await fetch("/api/qr", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prefix,
+        count: Number(count),
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error || "Gagal membuat QR."
+      );
+    }
+
+    await loadRows();
+
+    setMessage(
+      `${result.data.length} QR berhasil dibuat.`
+    );
+  } catch (error) {
+    setMessage(
+      error instanceof Error
+        ? error.message
+        : "Gagal membuat QR."
+    );
+  } finally {
+    setLoading(false);
+  }
+}
+ saveQR(id) {
     const draft = drafts[id];
 
     if (!draft) {
@@ -445,6 +488,88 @@ export default function AdminPage() {
       </header>
 
       <hr />
+
+<section
+  style={{
+    marginTop: 24,
+    marginBottom: 24,
+    padding: 20,
+    border: "1px solid #ddd",
+    borderRadius: 12,
+    background: "#fff",
+    color: "#111",
+  }}
+>
+  <h2>Buat QR Baru</h2>
+
+  <form
+    onSubmit={createQR}
+    style={{
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      alignItems: "end",
+    }}
+  >
+    <label>
+      Prefix
+      <input
+        value={prefix}
+        onChange={(event) =>
+          setPrefix(event.target.value.toUpperCase())
+        }
+        required
+        maxLength={20}
+        style={{
+          display: "block",
+          padding: 10,
+          marginTop: 6,
+          border: "1px solid #ccc",
+          borderRadius: 6,
+        }}
+      />
+    </label>
+
+    <label>
+      Jumlah QR
+      <input
+        type="number"
+        min="1"
+        max="500"
+        value={count}
+        onChange={(event) =>
+          setCount(event.target.value)
+        }
+        required
+        style={{
+          display: "block",
+          padding: 10,
+          marginTop: 6,
+          border: "1px solid #ccc",
+          borderRadius: 6,
+        }}
+      />
+    </label>
+
+    <button
+      type="submit"
+      disabled={loading}
+      style={{
+        padding: 12,
+        borderRadius: 6,
+        cursor: loading ? "wait" : "pointer",
+      }}
+    >
+      {loading ? "Memproses..." : "Buat QR"}
+    </button>
+  </form>
+
+  <p style={{ color: "#666", fontSize: 13 }}>
+    QR baru akan dibuat dalam keadaan nonaktif.
+    User dapat mengisi URL dan mengikuti proses
+    aktivasi menggunakan PIN global.
+  </p>
+</section>
 
       <p role="status">{message}</p>
 
