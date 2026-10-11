@@ -183,6 +183,151 @@ async function generateQR(row) {
     border: "1px solid #ccc",
     borderRadius: 6,
   };
+  
+  // Mengelompokkan QR berdasarkan status yang tersimpan
+  const activatedRows = rows.filter(
+    (row) => row.is_active
+  );
+
+  const waitingRows = rows.filter(
+    (row) => !row.is_active && Boolean(row.destination_url)
+  );
+
+  const emptyRows = rows.filter(
+    (row) => !row.is_active && !row.destination_url
+  );
+
+  // Menampilkan kartu QR untuk setiap kategori
+  const renderQRRows = (items, emptyMessage) => {
+    if (items.length === 0) {
+      return <p style={{ color: "#777" }}>{emptyMessage}</p>;
+    }
+
+    return items.map((row) => {
+      const draft = drafts[row.id] || {
+        destination_url: row.destination_url || "",
+        is_active: row.is_active,
+      };
+
+      return (
+        <section
+          key={row.id}
+          style={{
+            border: "1px solid #ddd",
+            borderRadius: 10,
+            padding: 16,
+            marginTop: 12,
+            background: "#fff",
+          }}
+        >
+          <strong>{row.code}</strong>
+
+          <p style={{ marginTop: 8 }}>
+            Status:{" "}
+            {row.is_active
+              ? "Aktif"
+              : row.destination_url
+                ? "Menunggu aktivasi"
+                : "QR kosong"}
+          </p>
+
+          <div style={{ marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={() => generateQR(row)}
+            >
+              {qrImages[row.id] ? "Perbarui QR" : "Buat gambar QR"}
+            </button>
+
+            {qrImages[row.id] && (
+              <div style={{ marginTop: 12 }}>
+                <img
+                  src={qrImages[row.id].dataUrl}
+                  alt={`QR Code ${row.code}`}
+                  width={180}
+                  height={180}
+                  style={{ display: "block", background: "#fff" }}
+                />
+
+                <p>
+                  <a
+                    href={qrImages[row.id].dataUrl}
+                    download={`${row.code}.png`}
+                  >
+                    Download PNG
+                  </a>
+                </p>
+              </div>
+            )}
+          </div>
+
+          <label
+            htmlFor={`destination-${row.id}`}
+            style={{ display: "block", marginBottom: 6 }}
+          >
+            Link tujuan
+          </label>
+
+          <input
+            id={`destination-${row.id}`}
+            type="url"
+            maxLength={2048}
+            placeholder="https://contoh.com"
+            value={draft.destination_url}
+            onChange={(event) =>
+              setDrafts((old) => ({
+                ...old,
+                [row.id]: {
+                  ...draft,
+                  destination_url: event.target.value,
+                },
+              }))
+            }
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: 10,
+              border: "1px solid #ccc",
+              borderRadius: 6,
+            }}
+          />
+
+          <label
+            style={{
+              display: "block",
+              marginTop: 12,
+              marginBottom: 12,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={draft.is_active}
+              onChange={(event) =>
+                setDrafts((old) => ({
+                  ...old,
+                  [row.id]: {
+                    ...draft,
+                    is_active: event.target.checked,
+                  },
+                }))
+              }
+            />{" "}
+            Aktifkan QR
+          </label>
+
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => saveQR(row.id)}
+            style={{ padding: 10 }}
+          >
+            Simpan perubahan
+          </button>
+        </section>
+      );
+    });
+  };
+
 
   if (!loggedIn) {
     return (
@@ -280,117 +425,83 @@ async function generateQR(row) {
 
       <h2>Daftar QR ({rows.length})</h2>
 
-      {rows.length === 0 ? (
-        <p>Belum ada QR. Buat QR pertama melalui form di atas.</p>
-      ) : (
-        rows.map((row) => {
-          const draft = drafts[row.id] || {
-            destination_url: "",
-            is_active: false,
-          };
+<div style={{ marginTop: 24, marginBottom: 20 }}>
+  <h2>Ringkasan QR</h2>
+  <p>Total QR: {rows.length}</p>
 
-          return (
-            <section
-              key={row.id}
-              style={{
-                border: "1px solid #ddd",
-                borderRadius: 10,
-                padding: 16,
-                marginBottom: 14,
-              }}
-            >
-              <strong>{row.code}</strong>
-
-<div style={{ marginTop: 12, marginBottom: 12 }}>
-  <button
-    type="button"
-    onClick={() => generateQR(row)}
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+      gap: 12,
+    }}
   >
-    {qrImages[row.id] ? "Perbarui QR" : "Buat gambar QR"}
-  </button>
-
-  {qrImages[row.id] && (
-    <div style={{ marginTop: 12 }}>
-      <img
-        src={qrImages[row.id].dataUrl}
-        alt={`QR Code ${row.code}`}
-        width={240}
-        height={240}
-        style={{
-          display: "block",
-          background: "#fff",
-          padding: 8,
-          border: "1px solid #ddd",
-          borderRadius: 8,
-        }}
-      />
-
-      <p>
-        <a
-          href={qrImages[row.id].dataUrl}
-          download={`${row.code}.png`}
-        >
-          Download PNG
-        </a>
-      </p>
-
-      <small style={{ wordBreak: "break-all" }}>
-        Alamat QR: {qrImages[row.id].url}
-      </small>
+    <div style={{
+      padding: 16,
+      border: "1px solid #bbf7d0",
+      borderRadius: 10,
+      background: "#f0fdf4",
+    }}>
+      <p style={{ margin: 0 }}>Sudah aktif</p>
+      <strong style={{ fontSize: 28 }}>
+        {activatedRows.length}
+      </strong>
     </div>
-  )}
+
+    <div style={{
+      padding: 16,
+      border: "1px solid #fde68a",
+      borderRadius: 10,
+      background: "#fffbeb",
+    }}>
+      <p style={{ margin: 0 }}>Menunggu aktivasi</p>
+      <strong style={{ fontSize: 28 }}>
+        {waitingRows.length}
+      </strong>
+    </div>
+
+    <div style={{
+      padding: 16,
+      border: "1px solid #ddd",
+      borderRadius: 10,
+      background: "#f9fafb",
+    }}>
+      <p style={{ margin: 0 }}>QR kosong</p>
+      <strong style={{ fontSize: 28 }}>
+        {emptyRows.length}
+      </strong>
+    </div>
+  </div>
 </div>
 
-              <p>
-                Status tersimpan:{" "}
-                {row.is_active ? "Aktif" : "Nonaktif"}
-              </p>
+<div style={{ display: "grid", gap: 24 }}>
+  <section>
+    <h2>1. QR Sudah Diaktifkan ({activatedRows.length})</h2>
+    <p>QR yang sudah aktif dan siap digunakan.</p>
+    {renderQRRows(
+      activatedRows,
+      "Belum ada QR yang diaktifkan."
+    )}
+  </section>
 
-              <label>Link tujuan</label>
-              <input
-                type="url"
-                placeholder="https://contoh.com/produk"
-                value={draft.destination_url}
-                onChange={(event) =>
-                  setDrafts((old) => ({
-                    ...old,
-                    [row.id]: {
-                      ...draft,
-                      destination_url: event.target.value,
-                    },
-                  }))
-                }
-                style={{ ...fieldStyle, marginTop: 6, marginBottom: 12 }}
-              />
+  <section>
+    <h2>2. URL Menunggu Aktivasi ({waitingRows.length})</h2>
+    <p>User sudah memasukkan URL, tetapi admin belum mengaktifkannya.</p>
+    {renderQRRows(
+      waitingRows,
+      "Belum ada pengajuan URL yang menunggu aktivasi."
+    )}
+  </section>
 
-              <label style={{ display: "block", marginBottom: 12 }}>
-                <input
-                  type="checkbox"
-                  checked={draft.is_active}
-                  onChange={(event) =>
-                    setDrafts((old) => ({
-                      ...old,
-                      [row.id]: {
-                        ...draft,
-                        is_active: event.target.checked,
-                      },
-                    }))
-                  }
-                />{" "}
-                Aktifkan QR
-              </label>
-
-              <button
-                disabled={loading}
-                onClick={() => saveQR(row.id)}
-                style={{ padding: 10 }}
-              >
-                Simpan perubahan
-              </button>
-            </section>
-          );
-        })
-      )}
+  <section>
+    <h2>3. QR Kosong ({emptyRows.length})</h2>
+    <p>QR belum memiliki URL tujuan.</p>
+    {renderQRRows(
+      emptyRows,
+      "Semua QR sudah memiliki URL atau sudah aktif."
+    )}
+  </section>
+</div>
     </main>
   );
 }
