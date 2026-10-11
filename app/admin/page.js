@@ -14,6 +14,7 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [qrImages, setQrImages] = useState({});
+  const [generatedPins, setGeneratedPins] = useState({});
 
   const loadRows = useCallback(async () => {
     const response = await fetch("/api/qr", {
@@ -141,6 +142,40 @@ export default function AdminPage() {
     setMessage("Kamu sudah logout.");
   }
 
+async function generatePin(id) {
+  setLoading(true);
+  setMessage("");
+
+  try {
+    const response = await fetch(`/api/qr/${id}/pin`, {
+      method: "POST",
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Gagal membuat PIN.");
+    }
+
+    setGeneratedPins((current) => ({
+      ...current,
+      [id]: result.pin,
+    }));
+
+    setMessage(
+      `PIN untuk ${result.code} berhasil dibuat. Salin PIN sebelum meninggalkan halaman.`
+    );
+  } catch (error) {
+    setMessage(
+      error instanceof Error
+        ? error.message
+        : "Gagal membuat PIN."
+    );
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function generateQR(row) {
   try {
     const baseUrl = (
@@ -221,6 +256,75 @@ async function generateQR(row) {
           }}
         >
           <strong>{row.code}</strong>
+<div
+  style={{
+    marginTop: 12,
+    marginBottom: 16,
+    padding: 12,
+    border: "1px solid #ddd",
+    borderRadius: 8,
+  }}
+>
+  <button
+    type="button"
+    disabled={loading || row.is_active}
+    onClick={() => generatePin(row.id)}
+    style={{
+      padding: 10,
+      borderRadius: 6,
+      cursor:
+        loading || row.is_active
+          ? "not-allowed"
+          : "pointer",
+    }}
+  >
+    {generatedPins[row.id]
+      ? "Buat PIN Baru"
+      : "Buat PIN Aktivasi"}
+  </button>
+
+  {generatedPins[row.id] && (
+    <div style={{ marginTop: 12 }}>
+      <p style={{ marginBottom: 6 }}>
+        PIN aktivasi untuk {row.code}:
+      </p>
+
+      <strong
+        style={{
+          display: "block",
+          fontSize: 28,
+          letterSpacing: 5,
+          marginBottom: 10,
+        }}
+      >
+        {generatedPins[row.id]}
+      </strong>
+
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(
+              generatedPins[row.id]
+            );
+            setMessage("PIN berhasil disalin.");
+          } catch {
+            setMessage(
+              "Gagal menyalin otomatis. Silakan salin PIN secara manual."
+            );
+          }
+        }}
+      >
+        Salin PIN
+      </button>
+
+      <p style={{ fontSize: 12, color: "#666" }}>
+        Berikan PIN ini kepada pemilik QR.
+        Simpan sebelum menutup atau memuat ulang dashboard.
+      </p>
+    </div>
+  )}
+</div>
 
           <p style={{ marginTop: 8 }}>
             Status:{" "}
