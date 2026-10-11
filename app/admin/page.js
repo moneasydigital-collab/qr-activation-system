@@ -484,47 +484,7 @@ async function generateQR(row) {
       </header>
 
       <hr />
-
-      <h2>Buat QR baru</h2>
-
-      <form
-        onSubmit={createQR}
-        style={{
-          display: "flex",
-          gap: 12,
-          flexWrap: "wrap",
-          alignItems: "end",
-        }}
-      >
-        <label>
-          Prefix
-          <input
-            value={prefix}
-            onChange={(event) => setPrefix(event.target.value)}
-            required
-            maxLength={20}
-            style={{ ...fieldStyle, width: 150 }}
-          />
-        </label>
-
-        <label>
-          Jumlah QR
-          <input
-            type="number"
-            min="1"
-            max="500"
-            value={count}
-            onChange={(event) => setCount(event.target.value)}
-            required
-            style={{ ...fieldStyle, width: 120 }}
-          />
-        </label>
-
-        <button disabled={loading} style={{ padding: 11 }}>
-          Buat QR
-        </button>
-      </form>
-
+    
       <p role="status">{message}</p>
 
       <h2>Daftar QR ({rows.length})</h2>
