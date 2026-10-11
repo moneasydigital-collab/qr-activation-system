@@ -20,8 +20,6 @@ export async function GET(
   };
 
   if (error) {
-    console.error("QR lookup error:", error.message);
-
     return new Response("Terjadi kesalahan server.", {
       status: 500,
       headers,
@@ -35,11 +33,17 @@ export async function GET(
     });
   }
 
+  // QR yang belum aktif akan membuka halaman pengajuan URL.
   if (!data.is_active || !data.destination_url) {
-    return new Response(
-      "QR Code ini belum aktif. Silakan hubungi admin.",
-      { status: 403, headers }
+    const formUrl = new URL(
+      `/submit/${encodeURIComponent(code)}`,
+      request.url
     );
+
+    return NextResponse.redirect(formUrl, {
+      status: 302,
+      headers,
+    });
   }
 
   let target: URL;
@@ -47,8 +51,12 @@ export async function GET(
   try {
     target = new URL(data.destination_url);
 
-    if (!["https:", "http:"].includes(target.protocol)) {
-      throw new Error("Protokol URL tidak diizinkan.");
+    if (
+      !["http:", "https:"].includes(target.protocol) ||
+      target.username ||
+      target.password
+    ) {
+      throw new Error("URL tidak diizinkan.");
     }
   } catch {
     return new Response("Link tujuan tidak valid.", {
@@ -57,6 +65,7 @@ export async function GET(
     });
   }
 
+  // QR aktif langsung menuju URL yang disetujui.
   return NextResponse.redirect(target, {
     status: 302,
     headers,
