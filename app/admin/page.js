@@ -1,7 +1,13 @@
+
 "use client";
 
 import QRCode from "qrcode";
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 export default function AdminPage() {
   const [password, setPassword] = useState("");
@@ -13,8 +19,13 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [qrImages, setQrImages] = useState({});
+  const [pendingCount, setPendingCount] = useState(0);
 
-  // Mengambil data QR dari server
+  const previousPendingIds = useRef(new Set());
+  const hasLoadedRows = useRef(false);
+  const serverRowsRef = useRef({});
+
+  // Mengambil data QR dan mendeteksi pengajuan URL baru
   const loadRows = useCallback(async () => {
     const response = await fetch("/api/qr", {
       cache: "no-store",
@@ -33,30 +44,104 @@ export default function AdminPage() {
       );
     }
 
-    const data = result.data || [];
+    const nextRows = result.data || [];
+    const previousRows = serverRowsRef.current;
 
-    setRows(data);
+    const waitingRows = nextRows.filter(
+      (row) => !row.is_active && Boolean(row.destination_url)
+    );
 
-    setDrafts(
-      Object.fromEntries(
-        data.map((row) => [
-          row.id,
-          {
-            destination_url: row.destination_url || "",
-            is_active: row.is_active,
-          },
-        ])
-      )
+    const currentPendingIds = new Set(
+      waitingRows.map((row) => row.id)
+    );
+
+    if (hasLoadedRows.current) {
+      const newSubmissions = waitingRows.filter(
+        (row) => !previousPendingIds.current.has(row.id)
+      );
+
+      if (newSubmissions.length > 0) {
+        const notice =
+          newSubmissions.length === 1
+            ? `QR ${newSubmissions[0].code} menerima URL baru.`
+            : `Ada ${newSubmissions.length} pengajuan URL baru.`;
+
+        setMessage(notice);
+
+        if (
+          typeof window !== "undefined" &&
+          "Notification" in window &&
+          Notification.permission === "granted"
+        ) {
+          new Notification("Pengajuan URL QR baru", {
+            body: notice,
+          });
+        }
+      }
+    }
+
+    previousPendingIds.current = currentPendingIds;
+    hasLoadedRows.current = true;
+
+    setPendingCount(waitingRows.length);
+    setRows(nextRows);
+
+    // Perbarui data dari server tanpa menimpa edit yang belum disimpan.
+    setDrafts((currentDrafts) => {
+      const nextDrafts = {};
+
+      for (const row of nextRows) {
+        const previousRow = previousRows[row.id];
+        const currentDraft = currentDrafts[row.id];
+
+        const hasUnsavedChanges =
+          previousRow &&
+          currentDraft &&
+          (
+            currentDraft.destination_url !==
+              (previousRow.destination_url || "") ||
+            currentDraft.is_active !== previousRow.is_active
+          );
+
+        nextDrafts[row.id] = hasUnsavedChanges
+          ? currentDraft
+          : {
+              destination_url: row.destination_url || "",
+              is_active: row.is_active,
+            };
+      }
+
+      return nextDrafts;
+    });
+
+    serverRowsRef.current = Object.fromEntries(
+      nextRows.map((row) => [row.id, row])
     );
 
     setLoggedIn(true);
   }, []);
 
+  // Periksa sesi ketika dashboard dibuka
   useEffect(() => {
     loadRows().catch((error) => {
       setMessage(error.message || "Gagal memuat dashboard.");
     });
   }, [loadRows]);
+
+  // Periksa pengajuan baru setiap 10 detik ketika admin login.
+  useEffect(() => {
+    if (!loggedIn) return;
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+
+      loadRows().catch((error) => {
+        setMessage(error.message || "Gagal memperbarui data.");
+      });
+    }, 10000);
+
+    return () => window.clearInterval(timer);
+  }, [loggedIn, loadRows]);
 
   // Login admin
   async function login(event) {
@@ -73,7 +158,7 @@ export default function AdminPage() {
         body: JSON.stringify({ password }),
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(result.error || "Login gagal.");
@@ -91,49 +176,46 @@ export default function AdminPage() {
     }
   }
 
-  // Simpan URL dan status QR
-  async function 
-async function createQR(event) {
-  event.preventDefault();
-  setLoading(true);
-  setMessage("");
+  // Membuat QR baru secara massal dengan nomor berurutan
+  async function createQR(event) {
+    event.preventDefault();
+    setLoading(true);
+    setMessage("");
 
-  try {
-    const response = await fetch("/api/qr", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        prefix,
-        count: Number(count),
-      }),
-    });
+    try {
+      const response = await fetch("/api/qr", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prefix,
+          count: Number(count),
+        }),
+      });
 
-    const result = await response.json();
+      const result = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-      throw new Error(
-        result.error || "Gagal membuat QR."
+      if (!response.ok) {
+        throw new Error(result.error || "Gagal membuat QR.");
+      }
+
+      await loadRows();
+
+      setMessage(`${result.data.length} QR berhasil dibuat.`);
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Gagal membuat QR."
       );
+    } finally {
+      setLoading(false);
     }
-
-    await loadRows();
-
-    setMessage(
-      `${result.data.length} QR berhasil dibuat.`
-    );
-  } catch (error) {
-    setMessage(
-      error instanceof Error
-        ? error.message
-        : "Gagal membuat QR."
-    );
-  } finally {
-    setLoading(false);
   }
-}
- saveQR(id) {
+
+  // Simpan URL dan status QR oleh admin
+  async function saveQR(id) {
     const draft = drafts[id];
 
     if (!draft) {
@@ -156,7 +238,7 @@ async function createQR(event) {
         }),
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(
@@ -165,9 +247,8 @@ async function createQR(event) {
       }
 
       await loadRows();
-      setMessage(
-        `QR ${result.data.code} berhasil disimpan.`
-      );
+
+      setMessage(`QR ${result.data.code} berhasil disimpan.`);
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -190,11 +271,15 @@ async function createQR(event) {
       setRows([]);
       setDrafts({});
       setQrImages({});
+      setPendingCount(0);
+      previousPendingIds.current = new Set();
+      hasLoadedRows.current = false;
+      serverRowsRef.current = {};
       setMessage("Kamu sudah logout.");
     }
   }
 
-  // Membuat gambar QR untuk kode yang sudah ada
+  // Membuat gambar QR dari URL permanen
   async function generateQR(row) {
     try {
       const baseUrl = (
@@ -223,16 +308,39 @@ async function createQR(event) {
         },
       }));
 
-      setMessage(
-        `Gambar QR ${row.code} berhasil dibuat.`
-      );
+      setMessage(`Gambar QR ${row.code} berhasil dibuat.`);
     } catch (error) {
       console.error("Gagal membuat QR:", error);
-      setMessage("Gagal membuat gambar QR. Coba lagi.");
+      setMessage("Gagal membuat QR. Coba lagi.");
     }
   }
 
-  // Menyiapkan draft URL dan status
+  // Minta izin notifikasi browser
+  async function enableBrowserNotifications() {
+    if (!("Notification" in window)) {
+      setMessage(
+        "Browser ini tidak mendukung notifikasi desktop."
+      );
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+
+      if (permission === "granted") {
+        setMessage(
+          "Notifikasi aktif. Biarkan dashboard terbuka agar pengajuan baru dapat terdeteksi."
+        );
+      } else {
+        setMessage(
+          "Izin notifikasi tidak diberikan. Pengajuan tetap terlihat di dashboard."
+        );
+      }
+    } catch {
+      setMessage("Tidak dapat mengaktifkan notifikasi browser.");
+    }
+  }
+
   function updateDraft(id, changes) {
     setDrafts((current) => ({
       ...current,
@@ -256,7 +364,7 @@ async function createQR(event) {
     marginTop: 6,
   };
 
-  // Tiga kategori berdasarkan data yang tersimpan
+  // Kategorisasi QR berdasarkan status tersimpan di database
   const activatedRows = rows.filter(
     (row) => row.is_active
   );
@@ -269,13 +377,11 @@ async function createQR(event) {
     (row) => !row.is_active && !row.destination_url
   );
 
-  // Tampilan setiap QR
+  // Tampilan kartu untuk setiap QR
   function renderQRRows(items, emptyMessage) {
     if (items.length === 0) {
       return (
-        <p style={{ color: "#777" }}>
-          {emptyMessage}
-        </p>
+        <p style={{ color: "#777" }}>{emptyMessage}</p>
       );
     }
 
@@ -299,9 +405,7 @@ async function createQR(event) {
             color: "#111",
           }}
         >
-          <strong style={{ fontSize: 18 }}>
-            {row.code}
-          </strong>
+          <strong style={{ fontSize: 18 }}>{row.code}</strong>
 
           <p>
             Status tersimpan:{" "}
@@ -358,9 +462,7 @@ async function createQR(event) {
             )}
           </div>
 
-          <label
-            htmlFor={`destination-${row.id}`}
-          >
+          <label htmlFor={`destination-${row.id}`}>
             Link tujuan
           </label>
 
@@ -410,7 +512,7 @@ async function createQR(event) {
     });
   }
 
-  // Halaman login
+  // Tampilan login
   if (!loggedIn) {
     return (
       <main
@@ -434,9 +536,7 @@ async function createQR(event) {
             type="password"
             autoComplete="current-password"
             value={password}
-            onChange={(event) =>
-              setPassword(event.target.value)
-            }
+            onChange={(event) => setPassword(event.target.value)}
             required
             style={{
               ...fieldStyle,
@@ -458,7 +558,7 @@ async function createQR(event) {
     );
   }
 
-  // Dashboard admin
+  // Tampilan utama dashboard
   return (
     <main
       style={{
@@ -479,101 +579,81 @@ async function createQR(event) {
       >
         <h1>Dashboard QR Admin</h1>
 
-        <button
-          type="button"
-          onClick={logout}
-        >
+        <button type="button" onClick={logout}>
           Logout
         </button>
       </header>
 
       <hr />
 
-<section
-  style={{
-    marginTop: 24,
-    marginBottom: 24,
-    padding: 20,
-    border: "1px solid #ddd",
-    borderRadius: 12,
-    background: "#fff",
-    color: "#111",
-  }}
->
-  <h2>Buat QR Baru</h2>
-
-  <form
-    onSubmit={createQR}
-    style={{
-      display: "flex",
-      gap: 12,
-      flexWrap: "wrap",
-      alignItems: "end",
-    }}
-  >
-    <label>
-      Prefix
-      <input
-        value={prefix}
-        onChange={(event) =>
-          setPrefix(event.target.value.toUpperCase())
-        }
-        required
-        maxLength={20}
-        style={{
-          display: "block",
-          padding: 10,
-          marginTop: 6,
-          border: "1px solid #ccc",
-          borderRadius: 6,
-        }}
-      />
-    </label>
-
-    <label>
-      Jumlah QR
-      <input
-        type="number"
-        min="1"
-        max="500"
-        value={count}
-        onChange={(event) =>
-          setCount(event.target.value)
-        }
-        required
-        style={{
-          display: "block",
-          padding: 10,
-          marginTop: 6,
-          border: "1px solid #ccc",
-          borderRadius: 6,
-        }}
-      />
-    </label>
-
-    <button
-      type="submit"
-      disabled={loading}
-      style={{
-        padding: 12,
-        borderRadius: 6,
-        cursor: loading ? "wait" : "pointer",
-      }}
-    >
-      {loading ? "Memproses..." : "Buat QR"}
-    </button>
-  </form>
-
-  <p style={{ color: "#666", fontSize: 13 }}>
-    QR baru akan dibuat dalam keadaan nonaktif.
-    User dapat mengisi URL dan mengikuti proses
-    aktivasi menggunakan PIN global.
-  </p>
-</section>
-
       <p role="status">{message}</p>
 
-      <div style={{ marginTop: 24, marginBottom: 20 }}>
+      {/* Form membuat QR baru */}
+      <section
+        style={{
+          marginTop: 24,
+          marginBottom: 24,
+          padding: 20,
+          border: "1px solid #ddd",
+          borderRadius: 12,
+          background: "#fff",
+          color: "#111",
+        }}
+      >
+        <h2>Buat QR Baru</h2>
+
+        <form
+          onSubmit={createQR}
+          style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "end",
+          }}
+        >
+          <label>
+            Prefix
+            <input
+              value={prefix}
+              onChange={(event) =>
+                setPrefix(event.target.value.toUpperCase())
+              }
+              required
+              maxLength={20}
+              style={{ ...fieldStyle, width: 150 }}
+            />
+          </label>
+
+          <label>
+            Jumlah QR
+            <input
+              type="number"
+              min="1"
+              max="500"
+              value={count}
+              onChange={(event) => setCount(event.target.value)}
+              required
+              style={{ ...fieldStyle, width: 120 }}
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{ padding: 12 }}
+          >
+            {loading ? "Memproses..." : "Buat QR"}
+          </button>
+        </form>
+
+        <p style={{ color: "#666", fontSize: 13 }}>
+          QR baru dibuat dalam keadaan nonaktif dan menggunakan
+          nomor berurutan dari API QR.
+        </p>
+      </section>
+
+      {/* Ringkasan */}
+      <section style={{ marginTop: 24, marginBottom: 20 }}>
         <h2>Ringkasan QR</h2>
         <p>Total QR: {rows.length}</p>
 
@@ -627,42 +707,87 @@ async function createQR(event) {
             </strong>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div style={{ display: "grid", gap: 24 }}>
-        <section>
-          <h2>
-            1. QR Sudah Diaktifkan ({activatedRows.length})
-          </h2>
-          <p>QR yang sudah aktif dan siap digunakan.</p>
-          {renderQRRows(
-            activatedRows,
-            "Belum ada QR yang diaktifkan."
-          )}
-        </section>
+      {/* Notifikasi */}
+      <section
+        style={{
+          border: "1px solid #ddd",
+          borderRadius: 10,
+          padding: 14,
+          marginBottom: 24,
+        }}
+      >
+        <p>
+          <strong>
+            Pengajuan menunggu aktivasi: {pendingCount}
+          </strong>
+        </p>
 
-        <section>
-          <h2>
-            2. URL Menunggu Aktivasi ({waitingRows.length})
-          </h2>
-          <p>
-            User sudah memasukkan URL, tetapi QR belum aktif.
-          </p>
-          {renderQRRows(
-            waitingRows,
-            "Belum ada pengajuan URL yang menunggu aktivasi."
-          )}
-        </section>
+        <button
+          type="button"
+          onClick={enableBrowserNotifications}
+        >
+          Aktifkan notifikasi browser
+        </button>
 
-        <section>
-          <h2>3. QR Kosong ({emptyRows.length})</h2>
-          <p>QR belum memiliki URL tujuan.</p>
-          {renderQRRows(
-            emptyRows,
-            "Semua QR sudah memiliki URL atau sudah aktif."
-          )}
-        </section>
-      </div>
+        <button
+          type="button"
+          onClick={() =>
+            loadRows().catch((error) =>
+              setMessage(error.message)
+            )
+          }
+          style={{ marginLeft: 8 }}
+        >
+          Muat ulang data
+        </button>
+
+        <p style={{ color: "#666", fontSize: 12 }}>
+          Dashboard memeriksa pengajuan setiap 10 detik ketika
+          admin login dan halaman terbuka. Notifikasi browser
+          memerlukan izin dari pengguna.
+        </p>
+      </section>
+
+      {/* Kategori 1 */}
+      <section>
+        <h2>
+          1. QR Sudah Diaktifkan ({activatedRows.length})
+        </h2>
+        <p>QR yang sudah aktif dan siap digunakan.</p>
+
+        {renderQRRows(
+          activatedRows,
+          "Belum ada QR yang diaktifkan."
+        )}
+      </section>
+
+      {/* Kategori 2 */}
+      <section style={{ marginTop: 28 }}>
+        <h2>
+          2. URL Menunggu Aktivasi ({waitingRows.length})
+        </h2>
+        <p>
+          User sudah memasukkan URL, tetapi QR belum aktif.
+        </p>
+
+        {renderQRRows(
+          waitingRows,
+          "Belum ada pengajuan URL yang menunggu aktivasi."
+        )}
+      </section>
+
+      {/* Kategori 3 */}
+      <section style={{ marginTop: 28 }}>
+        <h2>3. QR Kosong ({emptyRows.length})</h2>
+        <p>QR belum memiliki URL tujuan.</p>
+
+        {renderQRRows(
+          emptyRows,
+          "Semua QR sudah memiliki URL atau sudah aktif."
+        )}
+      </section>
     </main>
   );
 }
