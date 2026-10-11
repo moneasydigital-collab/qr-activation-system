@@ -1,7 +1,8 @@
-import QRCode from "qrcode";
 "use client";
 
+import QRCode from "qrcode";
 import { useCallback, useEffect, useState } from "react";
+
 
 export default function AdminPage() {
   const [password, setPassword] = useState("");
