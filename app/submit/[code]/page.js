@@ -11,6 +11,7 @@ export default function SubmitPage() {
 
   const [status, setStatus] = useState("loading");
   const [url, setUrl] = useState("");
+  const [pin, setPin] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -53,73 +54,98 @@ export default function SubmitPage() {
     };
   }, [code]);
 
-  async function submit(event) {
+  async function activate(event) {
     event.preventDefault();
     setSaving(true);
     setMessage("");
 
     try {
       const response = await fetch(
-        `/api/qr-submit/${encodeURIComponent(code)}`,
+        `/api/qr-activate/${encodeURIComponent(code)}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ destination_url: url }),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            destination_url: url.trim(),
+            pin: pin.trim(),
+          }),
         }
       );
 
       const result = await response.json();
 
       if (!response.ok) {
-        setMessage(result.error || "Gagal mengirim URL.");
+        setMessage(result.error || "Aktivasi gagal.");
         return;
       }
 
-      setStatus("pending");
+      setStatus("active");
+      setUrl("");
+      setPin("");
       setMessage(
-        "URL berhasil dikirim. Silakan tunggu aktivasi admin."
+        "QR berhasil diaktifkan! Silakan scan ulang QR untuk membuka URL tujuan."
       );
     } catch {
-      setMessage("Koneksi bermasalah. Coba lagi.");
+      setMessage("Koneksi bermasalah. Silakan coba lagi.");
     } finally {
       setSaving(false);
     }
   }
 
-  const boxStyle = {
-    maxWidth: 480,
+  const cardStyle = {
+    maxWidth: 460,
     width: "100%",
     boxSizing: "border-box",
     padding: 24,
-    border: "1px solid #ddd",
-    borderRadius: 14,
+    border: "1px solid #e5e7eb",
+    borderRadius: 16,
     background: "#fff",
-    color: "#111",
+    color: "#111827",
+    boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
+  };
+
+  const inputStyle = {
+    display: "block",
+    width: "100%",
+    boxSizing: "border-box",
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 16,
+    border: "1px solid #d1d5db",
+    borderRadius: 8,
+    fontSize: 16,
   };
 
   return (
     <main
       style={{
         minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
         boxSizing: "border-box",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 20,
+        background: "#f3f4f6",
         fontFamily: "Arial, sans-serif",
-        background: "#f5f5f5",
       }}
     >
-      <section style={boxStyle}>
-        <h1>Aktivasi QR Code</h1>
-        <p style={{ color: "#666", overflowWrap: "anywhere" }}>
-          Kode: {code}
+      <section style={cardStyle}>
+        <h1 style={{ marginTop: 0 }}>Aktivasi QR Code</h1>
+
+        <p style={{ color: "#6b7280", overflowWrap: "anywhere" }}>
+          Kode QR: <strong>{code}</strong>
         </p>
 
-        {status === "loading" && <p>Memeriksa status QR...</p>}
+        {status === "loading" && (
+          <p>Memeriksa status QR...</p>
+        )}
 
         {status === "not_found" && (
-          <p>QR tidak ditemukan. Periksa kembali kode QR kamu.</p>
+          <p role="alert">
+            QR tidak ditemukan. Periksa kembali kode QR kamu.
+          </p>
         )}
 
         {status === "error" && (
@@ -127,27 +153,29 @@ export default function SubmitPage() {
         )}
 
         {status === "active" && (
-          <p>QR sudah aktif. Silakan pindai QR untuk membuka link tujuan.</p>
-        )}
-
-        {status === "pending" && (
           <div>
-            <h2>Menunggu aktivasi admin</h2>
-            <p>URL kamu sudah tersimpan dan tidak dapat diganti melalui halaman ini.</p>
-            <p>{message || "Admin akan memeriksa URL sebelum mengaktifkan QR."}</p>
+            <h2 style={{ color: "#15803d" }}>
+              QR sudah aktif
+            </h2>
+            <p>
+              QR ini sudah diaktifkan. Scan ulang QR untuk membuka
+              halaman tujuan.
+            </p>
+            <p role="status">{message}</p>
           </div>
         )}
 
-        {status === "open" && (
-          <form onSubmit={submit}>
-            <h2>Masukkan URL tujuan</h2>
-
+        {(status === "open" || status === "pending") && (
+          <form onSubmit={activate}>
             <p>
-              Masukkan link yang ingin dibuka ketika QR sudah aktif.
+              {status === "pending"
+                ? "URL pernah diajukan untuk QR ini. Masukkan URL final dan PIN aktivasi untuk menyelesaikan aktivasi."
+                : "Masukkan URL tujuan dan PIN yang diberikan admin untuk mengaktifkan QR."}
             </p>
 
-            <label htmlFor="destination_url">URL tujuan</label>
-
+            <label htmlFor="destination_url">
+              URL tujuan
+            </label>
             <input
               id="destination_url"
               type="url"
@@ -156,30 +184,64 @@ export default function SubmitPage() {
               placeholder="https://contoh.com"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
-              style={{
-                display: "block",
-                width: "100%",
-                boxSizing: "border-box",
-                padding: 12,
-                marginTop: 8,
-                marginBottom: 14,
-                border: "1px solid #ccc",
-                borderRadius: 6,
-              }}
+              style={inputStyle}
+            />
+
+            <label htmlFor="activation_pin">
+              PIN aktivasi (6 digit)
+            </label>
+            <input
+              id="activation_pin"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              minLength={6}
+              maxLength={6}
+              required
+              placeholder="Contoh: 048251"
+              value={pin}
+              onChange={(event) =>
+                setPin(
+                  event.target.value
+                    .replace(/\D/g, "")
+                    .slice(0, 6)
+                )
+              }
+              style={inputStyle}
             />
 
             <button
               type="submit"
-              disabled={saving}
-              style={{ padding: 12, cursor: "pointer" }}
+              disabled={saving || pin.length !== 6}
+              style={{
+                width: "100%",
+                padding: 13,
+                border: 0,
+                borderRadius: 8,
+                background:
+                  saving || pin.length !== 6
+                    ? "#9ca3af"
+                    : "#111827",
+                color: "#fff",
+                fontSize: 16,
+                fontWeight: 600,
+                cursor:
+                  saving || pin.length !== 6
+                    ? "not-allowed"
+                    : "pointer",
+              }}
             >
-              {saving ? "Mengirim..." : "Kirim URL untuk aktivasi"}
+              {saving ? "Memproses aktivasi..." : "Aktifkan QR"}
             </button>
 
-            <p role="status">{message}</p>
-            <small>
-              Gunakan URL lengkap dengan http:// atau https://.
-              Setelah dikirim, URL menunggu persetujuan admin.
+            <p role="status" style={{ overflowWrap: "anywhere" }}>
+              {message}
+            </p>
+
+            <small style={{ color: "#6b7280" }}>
+              PIN hanya dapat dipakai sekali. Setelah aktivasi
+              berhasil, QR akan langsung mengarah ke URL tujuan.
             </small>
           </form>
         )}
