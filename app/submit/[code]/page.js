@@ -188,24 +188,24 @@ export default function SubmitPage() {
             />
 
             <label htmlFor="activation_pin">
-              PIN aktivasi (6 digit)
+              PIN aktivasi global (8 digit)
             </label>
             <input
               id="activation_pin"
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              minLength={6}
-              maxLength={6}
+              pattern="[0-9]{8}"
+              minLength={8}
+              maxLength={8}
               required
-              placeholder="Contoh: 048251"
+              placeholder="Contoh: 04825142"
               value={pin}
               onChange={(event) =>
                 setPin(
                   event.target.value
                     .replace(/\D/g, "")
-                    .slice(0, 6)
+                    .slice(0, 8)
                 )
               }
               style={inputStyle}
@@ -213,21 +213,21 @@ export default function SubmitPage() {
 
             <button
               type="submit"
-              disabled={saving || pin.length !== 6}
+              disabled={saving || pin.length !== 8}
               style={{
                 width: "100%",
                 padding: 13,
                 border: 0,
                 borderRadius: 8,
                 background:
-                  saving || pin.length !== 6
+                  saving || pin.length !== 8
                     ? "#9ca3af"
                     : "#111827",
                 color: "#fff",
                 fontSize: 16,
                 fontWeight: 600,
                 cursor:
-                  saving || pin.length !== 6
+                  saving || pin.length !== 8
                     ? "not-allowed"
                     : "pointer",
               }}
