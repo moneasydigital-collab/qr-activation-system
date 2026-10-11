@@ -1,8 +1,4 @@
-import {
-  createHmac,
-  timingSafeEqual,
-} from "node:crypto";
-
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
@@ -31,14 +27,24 @@ export async function POST(
       ? body.destination_url.trim()
       : "";
 
-  // Validasi input
-  if (!/^\d{6}$/.test(pin)) {
+  // Semua QR memakai PIN global yang sama.
+  const globalPin = process.env.QR_ACTIVATION_PIN;
+
+  if (!globalPin || !/^\d{8}$/.test(globalPin)) {
     return NextResponse.json(
-      { error: "Masukkan PIN yang terdiri dari 6 angka." },
+      { error: "PIN global belum dikonfigurasi dengan benar." },
+      { status: 500, headers }
+    );
+  }
+
+  if (!/^\d{8}$/.test(pin)) {
+    return NextResponse.json(
+      { error: "Masukkan PIN aktivasi yang terdiri dari 8 angka." },
       { status: 400, headers }
     );
   }
 
+  // Validasi URL tujuan.
   if (!rawUrl || rawUrl.length > 2048) {
     return NextResponse.json(
       { error: "Masukkan URL tujuan yang valid." },
@@ -62,29 +68,15 @@ export async function POST(
     destinationUrl = parsed.toString();
   } catch {
     return NextResponse.json(
-      {
-        error:
-          "URL harus menggunakan http:// atau https:// yang valid.",
-      },
+      { error: "URL harus menggunakan http:// atau https:// yang valid." },
       { status: 400, headers }
     );
   }
 
-  const secret = process.env.ADMIN_SESSION_SECRET;
-
-  if (!secret || secret.length < 32) {
-    return NextResponse.json(
-      { error: "Konfigurasi keamanan server belum benar." },
-      { status: 500, headers }
-    );
-  }
-
-  // Ambil data QR dan hash PIN dari database
+  // Ambil QR yang hendak diaktifkan.
   const { data: qr, error: lookupError } = await supabase
     .from("qr_codes")
-    .select(
-      "id, code, is_active, activation_pin_hash, pin_attempts, pin_locked_until"
-    )
+    .select("id, code, is_active, pin_attempts, pin_locked_until")
     .eq("code", code)
     .maybeSingle();
 
@@ -109,69 +101,49 @@ export async function POST(
     );
   }
 
-  if (!qr.activation_pin_hash) {
-    return NextResponse.json(
-      {
-        error:
-          "PIN belum dibuat oleh admin. Hubungi admin untuk meminta PIN.",
-      },
-      { status: 400, headers }
-    );
-  }
+  // Kunci percobaan PIN berlaku pada QR ini.
+  const now = Date.now();
+  const lockedUntil = qr.pin_locked_until
+    ? new Date(qr.pin_locked_until).getTime()
+    : 0;
 
-  // Batasi percobaan PIN yang salah
-  if (
-    qr.pin_locked_until &&
-    new Date(qr.pin_locked_until).getTime() > Date.now()
-  ) {
+  if (lockedUntil > now) {
     return NextResponse.json(
-      {
-        error:
-          "Terlalu banyak percobaan. Coba kembali setelah 15 menit.",
-      },
+      { error: "Terlalu banyak percobaan. Coba lagi setelah 15 menit." },
       { status: 429, headers }
     );
   }
 
-  // Hitung hash PIN dengan metode yang sama seperti API pembuat PIN
-  const candidateHash = createHmac("sha256", secret)
-    .update(`${qr.id}:${pin}`)
-    .digest("hex");
-
-  const storedHash = qr.activation_pin_hash;
-
-  const validStoredHash =
-    typeof storedHash === "string" &&
-    /^[a-f0-9]{64}$/i.test(storedHash);
-
-  const pinMatches =
-    validStoredHash &&
-    timingSafeEqual(
-      Buffer.from(candidateHash, "hex"),
-      Buffer.from(storedHash, "hex")
-    );
+  const pinMatches = timingSafeEqual(
+    Buffer.from(pin),
+    Buffer.from(globalPin)
+  );
 
   if (!pinMatches) {
-    const attempts = (qr.pin_attempts || 0) + 1;
+    const previousAttempts =
+      lockedUntil > 0 && lockedUntil <= now
+        ? 0
+        : qr.pin_attempts || 0;
 
-    const lockedUntil =
+    const attempts = previousAttempts + 1;
+
+    const newLock =
       attempts >= 5
-        ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
+        ? new Date(now + 15 * 60 * 1000).toISOString()
         : null;
 
     const { error: attemptError } = await supabase
       .from("qr_codes")
       .update({
         pin_attempts: attempts,
-        pin_locked_until: lockedUntil,
+        pin_locked_until: newLock,
       })
       .eq("id", qr.id)
-      .eq("is_active", false)
-      .eq("activation_pin_hash", storedHash);
+      .eq("is_active", false);
 
     if (attemptError) {
       return NextResponse.json(
-        { error: "Gagal memproses percobaan PIN." },
+        { error: "Gagal mencatat percobaan PIN." },
         { status: 500, headers }
       );
     }
@@ -190,7 +162,7 @@ export async function POST(
     );
   }
 
-  // Aktifkan QR hanya jika hash PIN belum berubah dan QR masih nonaktif.
+  // PIN benar: aktifkan QR dan simpan URL pilihan user.
   const { data: activated, error: activateError } = await supabase
     .from("qr_codes")
     .update({
@@ -203,7 +175,6 @@ export async function POST(
     })
     .eq("id", qr.id)
     .eq("is_active", false)
-    .eq("activation_pin_hash", storedHash)
     .select("code, destination_url, is_active, activated_at")
     .maybeSingle();
 
@@ -216,10 +187,7 @@ export async function POST(
 
   if (!activated) {
     return NextResponse.json(
-      {
-        error:
-          "QR sudah berubah atau telah diaktifkan. Silakan muat ulang halaman.",
-      },
+      { error: "QR sudah berubah atau sudah aktif." },
       { status: 409, headers }
     );
   }
